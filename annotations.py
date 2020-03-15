@@ -1,7 +1,5 @@
 import numpy as np
 import pandas as pd
-#frame, title, subject, omlidt, direkte, kortnyt, location
-
 A = np.array([[658, 908, 'to planlagde angreb med drone', 'terror'],
     [999, 1059, 'kåre quist', 'tv avisen'],
     [2640, 2731, 'tore hamming', 'ph.d.-studerende, gæsteforsker, diis'],
@@ -73,7 +71,6 @@ for o in omlidt:
         ret_arr[ret_arr[:,0] == i, 3] = True
         i += 1
 
-
 dires = []
 for d in direkte:
     i = int(d[0])
@@ -92,4 +89,3 @@ data = pd.DataFrame(merged)
 data = data.rename(columns={0: "Frame", 1: "Story title", 2: "Story subject", 3: "Om lidt", 4: "Direkte", 5: "Kort nyt", 6: "Location"})
 data = data.sort_values(by=['Frame'])
 data.to_csv("annotated_data1", index=False)
-#np.save("annos", ret_arr)

@@ -8,27 +8,23 @@ from skimage.measure import compare_ssim
 from skimage.metrics import structural_similarity
 
 class TextExtracter:
-    def __init__(self, video=None, dpi=400, date=None):
+    def __init__(self, video=None, date=None):
+        f = cv.imread('./direkte.png')
+        ol = cv.imread('./omlidt.png')
+
         self.video = video
-        self.date = date
         self.net = cv.dnn.readNet("frozen_east_text_detection.pb")
         self.text_processor = TextProcessor()
-        self.dpi = dpi
         self.labels = []
-        f = cv.imread('./direkte.png')
+
         self.direkte = cv.cvtColor(f, cv.COLOR_BGR2GRAY)
         self.direkte_coords = ((558, 14), (639, 38))
-        self.title = None
-        self.title_coords = None
-        self.current_title = None
-        self.subject = None
-        self.location = None
-        ol = cv.imread('./omlidt.png')
         self.omlidt = cv.cvtColor(ol, cv.COLOR_BGR2GRAY)
         self.omlidt_coords = ((530, 305), (573, 318))
 
-
-
+        self.title, self.title_coords, self.current_title = None, None, None
+        self.subject = None
+        self.location = None
 
     def process_video(self, debug=False):
         if self.video is not None:
@@ -39,97 +35,21 @@ class TextExtracter:
                 np.save("labels", np.array(self.labels))
                 title, subject, omlidt, direkte, kortnyt, location = None, None, False, False, False, None
                 ret, frame = cap.read()
-
-                if self.title is None and self.title_coords is None:
-                    title = self.find_boxes(frame, save_frame='title')
-                    if title is None:
-                        title = self.find_boxes(frame, min_area=15000, max_area=30000, \
-                                                thr_lower=160, thr_upper=185, \
-                                                save_frame='title')
-
-
-                else:
-                    upper_left = self.title_coords[0]
-                    lower_right = self.title_coords[1]
-                    new_frame = frame[upper_left[1]:lower_right[1], upper_left[0]:lower_right[0]]
-
-                    B = cv.resize(new_frame, (self.title.shape[1], self.title.shape[0]), interpolation = cv.INTER_AREA)
-                    gray_B = cv.cvtColor(B, cv.COLOR_BGR2GRAY)
-                    (score, diff) = structural_similarity(self.title, gray_B, full=True)
-                    if score > 0.8:
-                        title = self.current_title
-                        #print(frame_nr, title, score)
-                    else:
-                        self.title = None
-                        self.title_coords = None
-                        self.current_title = None
-                        self.subject = None
-                        title = self.find_boxes(frame, save_frame='title')
-
+                title = self.find_title(frame)
                 if title is not None:
                     text_found = True
-                    if self.subject is None:
-                        subject = self.find_boxes(frame, min_area=5000, max_area=20000, \
-                                                    thr_lower=220, thr_upper=255, sub=True)
-                        if subject is not None:
-                            self.subject = subject
-                    else:
-                        subject = self.subject
+                    subject = self.find_subject(frame)
                     if subject is not None:
-                        if self.omlidt is None:
-                            text = self.find_boxes(frame[200:, 200:], min_area=550, max_area=800, perimeter=0.04, \
-                                                    thr_lower=0, thr_upper=15, sub=3, dilation=1, resize=4)
-                            if text is not None:
-                                if text.replace(',', '').replace(' ', '').lower()  == "omlidt":
-                                    omlidt = True
-                                if text.replace(',', '').replace(' ', '').lower() == 'kortnyt':
-                                    kortnyt = True
+                        omlidt, kortnyt = self.find_omlidt(frame)
 
-                        else:
-                            upper_left = self.omlidt_coords[0]
-                            lower_right = self.omlidt_coords[1]
-                            new_frame = frame[upper_left[1]:lower_right[1], upper_left[0]:lower_right[0]]
+                # find DIREKTE box and location
+                direkte, location = self.find_direkte(frame)
 
-                            B = cv.resize(new_frame, (self.omlidt.shape[1], self.omlidt.shape[0]), interpolation = cv.INTER_AREA)
-                            gray_B = cv.cvtColor(B, cv.COLOR_BGR2GRAY)
-                            (score, diff) = structural_similarity(self.omlidt, gray_B, full=True)
-                            if score > 0.8:
-                                omlidt = True
+                if direkte is not None:
+                    text_found = True
 
-                # find DIREKTE box
-                if self.direkte is None:
-                    black = self.find_boxes(frame[:50, 200:], min_area=1000, max_area=1200, perimeter=0.02, \
-                                            thr_lower=0, thr_upper=20, sub=5, dilation=1, resize=2)
-
-
-                    if black == 'DIREKTE':
-                        text_found = True
-                        direkte = True
-                else:
-                    upper_left = self.direkte_coords[0]
-                    lower_right = self.direkte_coords[1]
-                    new_frame = frame[upper_left[1]:lower_right[1], upper_left[0]:lower_right[0]]
-
-                    B = cv.resize(new_frame, (self.direkte.shape[1], self.direkte.shape[0]), interpolation = cv.INTER_AREA)
-                    gray_B = cv.cvtColor(B, cv.COLOR_BGR2GRAY)
-                    (score, diff) = structural_similarity(self.direkte, gray_B, full=True)
-
-                    if score > 0.54:
-                        text_found = True
-                        direkte = True
-                        if self.location is None:
-                            location = self.find_boxes(frame[:50, 200:], min_area=700, max_area=3000, perimeter=0.02, \
-                                                    thr_lower=0, thr_upper=230, erosion=2)
-                        else:
-                            location = self.location
-                    else:
-                        if self.location is not None:
-                            self.location = None
-
-                    # find white box for location
                 if text_found:
                     self.labels.append(np.array([frame_nr, title, subject, omlidt, direkte, kortnyt, location]))
-
 
                 text_found = False
                 cv.imshow('frame', frame)
@@ -137,6 +57,97 @@ class TextExtracter:
                 if cv.waitKey(1) & 0xFF == ord('q'):
                     break
 
+    def find_title(self, frame):
+        if self.title is None and self.title_coords is None:
+            title = self.find_boxes(frame, save_frame='title')
+            if title is None:
+                title = self.find_boxes(frame, min_area=15000, max_area=30000, \
+                                        thr_lower=160, thr_upper=185, \
+                                        save_frame='title')
+                return title
+
+        else:
+            upper_left = self.title_coords[0]
+            lower_right = self.title_coords[1]
+            text_area = frame[upper_left[1]:lower_right[1], upper_left[0]:lower_right[0]]
+
+            detected_text = cv.resize(text_area, (self.title.shape[1], self.title.shape[0]), interpolation = cv.INTER_AREA)
+            detected_text = cv.cvtColor(detected_text, cv.COLOR_BGR2GRAY)
+            (score, _) = structural_similarity(self.title, detected_text, full=True)
+
+            if score > 0.8:
+                title = self.current_title
+            else:
+                self.title = None
+                self.title_coords = None
+                self.current_title = None
+                self.subject = None
+                title = self.find_boxes(frame, save_frame='title')
+            return title
+
+    def find_subject(self, frame):
+        if self.subject is None:
+            subject = self.find_boxes(frame, min_area=5000, max_area=20000, \
+                                        thr_lower=220, thr_upper=255, sub=True)
+            if subject is not None:
+                self.subject = subject
+        else:
+            subject = self.subject
+        return subject
+
+    def find_omlidt(self, frame):
+        omlidt, kortnyt = None, None
+        if self.omlidt is None:
+            text = self.find_boxes(frame[200:, 200:], min_area=550, max_area=800, perimeter=0.04, \
+                                    thr_lower=0, thr_upper=15, sub=3, dilation=1, resize=4)
+            if text is not None:
+                if text.replace(',', '').replace(' ', '').lower()  == "omlidt":
+                    omlidt = True
+                if text.replace(',', '').replace(' ', '').lower() == 'kortnyt':
+                    kortnyt = True
+        else:
+            upper_left = self.omlidt_coords[0]
+            lower_right = self.omlidt_coords[1]
+            text_area = frame[upper_left[1]:lower_right[1], upper_left[0]:lower_right[0]]
+
+            detected_text = cv.resize(text_area, (self.omlidt.shape[1], self.omlidt.shape[0]), interpolation = cv.INTER_AREA)
+            detected_text = cv.cvtColor(detected_text, cv.COLOR_BGR2GRAY)
+            (score, diff) = structural_similarity(self.omlidt, detected_text, full=True)
+            if score > 0.8:
+                omlidt = True
+
+        return omlidt, kortnyt
+
+    def find_direkte(self, frame):
+        direkte, location = None, None
+        if self.direkte is None:
+            black = self.find_boxes(frame[:50, 200:], min_area=1000, max_area=1200, perimeter=0.02, \
+                                    thr_lower=0, thr_upper=20, sub=5, dilation=1, resize=2)
+            if black == 'DIREKTE':
+                text_found = True
+                direkte = True
+        else:
+            upper_left = self.direkte_coords[0]
+            lower_right = self.direkte_coords[1]
+            new_frame = frame[upper_left[1]:lower_right[1], upper_left[0]:lower_right[0]]
+
+            B = cv.resize(new_frame, (self.direkte.shape[1], self.direkte.shape[0]), interpolation = cv.INTER_AREA)
+            gray_B = cv.cvtColor(B, cv.COLOR_BGR2GRAY)
+            (score, diff) = structural_similarity(self.direkte, gray_B, full=True)
+
+            if score > 0.54:
+                text_found = True
+                direkte = True
+                if self.location is None:
+                    location = self.find_boxes(frame[:50, 200:], min_area=700, max_area=3000, perimeter=0.02, \
+                                            thr_lower=0, thr_upper=230, erosion=2)
+                else:
+                    location = self.location
+            else:
+                if self.location is not None:
+                    self.location = None
+
+        return direkte, location
 
     def read_text(self, frame, upper_left, lower_right, resize=1, debug=False):
         new_frame = frame[upper_left[1]:lower_right[1], upper_left[0]:lower_right[0]]
@@ -156,7 +167,6 @@ class TextExtracter:
     def find_boxes(self, frame, min_area=25000, max_area=30000, perimeter=0.004, \
                     thr_lower=140, thr_upper=195, sub=None, erosion=None, dilation=None, \
                     allow_multi=False, resize=None, save_frame=False):
-
         gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
         thresh = cv.inRange(gray, thr_lower, thr_upper)
         thresh = thresh if dilation is None else cv.dilate(thresh,np.ones((3,3),np.uint8),iterations = dilation)
@@ -175,8 +185,8 @@ class TextExtracter:
                 approx = cv.approxPolyDP(contour, perimeter * peri, True)
                 if len(approx) == 4:
                     sortedp = self.sort_points(approx)
-                    upper_line = np.linalg.norm(sortedp[0]-sortedp[1])
-                    left_line = np.linalg.norm(sortedp[0]-sortedp[2])
+                    left_line = np.linalg.norm(sortedp[0]-sortedp[1])
+                    upper_line = np.linalg.norm(sortedp[0]-sortedp[2])
                     box_area = upper_line * left_line
                     # TODO: check if coordinates are inside the image
                     sortedp[0][0] = max(sortedp[0][0], 0)
@@ -184,7 +194,7 @@ class TextExtracter:
                     sortedp[3][0] = min(sortedp[3][0], frame.shape[1])
                     sortedp[3][1] = min(sortedp[3][1], frame.shape[0]) if sub is None else sortedp[3][1] + sub
 
-                    if box_area > min_area and box_area < max_area and upper_line < left_line:
+                    if box_area > min_area and box_area < max_area and upper_line > left_line:
                         try:
                             t = self.read_text(frame, (sortedp[0][0], sortedp[0][1]), (sortedp[3][0], sortedp[3][1]), resize)
                             if t != "":
@@ -216,7 +226,6 @@ class TextExtracter:
         upper = points[:2, :]
         ## upper left, upper right
         upper = upper[upper[:, 1].argsort()]
-
         lower = points[2:, :]
         ## lower left, lower right
         lower = lower[lower[:, 1].argsort()]
@@ -249,9 +258,6 @@ class TextProcessor:
         return text
 
 #    def strip_special_chars(self, text):
-
-
-
 
 
 # boxes, rW, rH = detect_text(frame, self.net)
