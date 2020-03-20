@@ -2,9 +2,6 @@ import cv2 as cv
 import pytesseract
 import numpy as np
 from text_detection import detect_text
-import nltk
-import re
-from skimage.measure import compare_ssim
 from skimage.metrics import structural_similarity
 
 class TextExtracter:
@@ -14,7 +11,6 @@ class TextExtracter:
 
         self.video = video
         self.net = cv.dnn.readNet("frozen_east_text_detection.pb")
-        self.text_processor = TextProcessor()
         self.labels = []
 
         self.direkte = cv.cvtColor(f, cv.COLOR_BGR2GRAY)
@@ -231,34 +227,6 @@ class TextExtracter:
         lower = lower[lower[:, 1].argsort()]
         ret = np.array([upper[0], upper[1], lower[0], lower[1]])
         return ret
-
-
-class TextProcessor:
-    def __init__(self):
-        self.stemmer = nltk.stem.snowball.SnowballStemmer("danish")
-        self.stopwords = nltk.corpus.stopwords.words('danish')
-
-    def stem(self, text):
-        # return stemmed text
-        return
-
-    def remove_stopwords(self, text):
-        return str([w for w in text.split(" ") if not w in self.stopwords])
-
-    def list_to_string(self, s):
-        new = ""
-        for x in s:
-            new += x
-        return new
-
-    def filter_text(self, text):
-        text = self.remove_stopwords(text)
-        text = re.findall("[a-z, A-Z, 0-9, :]", text)
-        text = self.list_to_string(text)
-        return text
-
-#    def strip_special_chars(self, text):
-
 
 # boxes, rW, rH = detect_text(frame, self.net)
 #
